@@ -1,14 +1,14 @@
 // fetch_latest_server_files.js
-// Purpose: Find the latest "ServerFiles-*.zip" for the CurseForge modpack,
+// Purpose: Find the latest server pack for the CurseForge modpack,
 // then update launch.sh values: SERVER_VERSION + SERVER_FILE_ID.
 //
 // Required env:
-// - CURSEFORGE_API_KEY (GitHub secret)
+// - CURSEFORGE_API_KEY
 
 import fs from "node:fs";
 
-const PROJECT_ID = 1356598; // All the Mons - ATMons
-const API_URL = `https://api.curseforge.com/v1/mods/${PROJECT_ID}/files?pageSize=50&sortField=FileDate&sortOrder=desc`;
+const PROJECT_ID = 1356598; // All the Mons (your modpack project id)
+const BASE = "https://api.curseforge.com/v1";
 
 function mustGetEnv(name) {
   const v = process.env[name];
@@ -16,9 +16,25 @@ function mustGetEnv(name) {
   return v;
 }
 
+async function cfFetch(path, apiKey) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "x-api-key": apiKey, Accept: "application/json" },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`CurseForge API error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
 function parseServerVersionFromFileName(fileName) {
-  // expected: ServerFiles-0.10.0-beta.zip
-  const m = /^ServerFiles-(.+)\.zip$/.exec(fileName);
+  // Try ServerFiles-0.10.0-beta.zip style
+  let m = /^ServerFiles-(.+)\.zip$/i.exec(fileName);
+  if (m) return m[1];
+
+  // Fallback: try to extract something version-like (best-effort)
+  // e.g. "...-0.10.0-beta..." anywhere
+  m = /(\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)*)/.exec(fileName);
   return m ? m[1] : null;
 }
 
@@ -32,60 +48,83 @@ function replaceOrThrow(haystack, pattern, replacement) {
 async function main() {
   const apiKey = mustGetEnv("CURSEFORGE_API_KEY");
 
-  const res = await fetch(API_URL, {
-    headers: {
-      "x-api-key": apiKey,
-      Accept: "application/json",
-    },
-  });
+  // 1) Get recent modpack files
+  const list = await cfFetch(`/mods/${PROJECT_ID}/files?pageSize=50`, apiKey);
+  const files = list?.data ?? [];
+  if (!files.length) throw new Error("No files returned for this project.");
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`CurseForge API error ${res.status}: ${body}`);
-  }
-
-  const json = await res.json();
-  const files = json?.data ?? [];
-
-  // Prefer isServerPack when available; fallback to filename convention.
-  const serverFiles = files
-    .filter(
-      (f) =>
-        f?.isServerPack === true ||
-        (typeof f?.fileName === "string" &&
-          f.fileName.startsWith("ServerFiles-") &&
-          f.fileName.endsWith(".zip"))
-    )
-    .map((f) => ({
-      id: f.id,
-      fileName: f.fileName,
-      fileDate: f.fileDate,
-      serverVersion: parseServerVersionFromFileName(f.fileName || ""),
-    }))
-    .filter((f) => f.serverVersion);
-
-  if (serverFiles.length === 0) {
-    throw new Error("No ServerFiles-*.zip (or isServerPack=true) found for this project.");
-  }
-
-  // Newest by fileDate; tie-breaker: highest id
-  serverFiles.sort((a, b) => {
+  // Prefer newest by fileDate, then highest id
+  files.sort((a, b) => {
     const ad = Date.parse(a.fileDate || "") || 0;
     const bd = Date.parse(b.fileDate || "") || 0;
     if (bd !== ad) return bd - ad;
     return (b.id || 0) - (a.id || 0);
   });
 
-  const latest = serverFiles[0];
-  console.log("Latest ServerFiles:", latest);
+  // 2) Find the newest file that has a server pack pointer
+  // CurseForge commonly uses serverPackFileId on modpack file entries
+  const candidate = files.find((f) => f?.serverPackFileId || f?.isServerPack);
+  if (!candidate) {
+    // If none have serverPackFileId, we can still try direct ServerFiles-*.zip naming
+    const direct = files.find(
+      (f) =>
+        typeof f?.fileName === "string" &&
+        f.fileName.toLowerCase().startsWith("serverfiles-") &&
+        f.fileName.toLowerCase().endsWith(".zip")
+    );
+    if (!direct) {
+      throw new Error(
+        "No ServerFiles-*.zip and no serverPackFileId found for this project."
+      );
+    }
+    // Direct server pack file found
+    const latest = {
+      id: direct.id,
+      fileName: direct.fileName,
+      serverVersion: parseServerVersionFromFileName(direct.fileName),
+    };
+    if (!latest.serverVersion) {
+      throw new Error(`Could not parse SERVER_VERSION from ${latest.fileName}`);
+    }
+    return updateLaunch(latest);
+  }
+
+  // 3) Resolve server pack file id
+  const serverFileId = candidate.serverPackFileId || candidate.id;
+
+  // If candidate is the server pack itself (isServerPack true), use it directly
+  let serverFile = candidate;
+  if (candidate.serverPackFileId) {
+    const one = await cfFetch(`/mods/${PROJECT_ID}/files/${serverFileId}`, apiKey);
+    serverFile = one?.data;
+  }
+
+  if (!serverFile?.id || !serverFile?.fileName) {
+    throw new Error("Could not resolve server pack file details from CurseForge.");
+  }
+
+  const latest = {
+    id: serverFile.id,
+    fileName: serverFile.fileName,
+    serverVersion: parseServerVersionFromFileName(serverFile.fileName),
+  };
+
+  if (!latest.serverVersion) {
+    throw new Error(`Could not parse SERVER_VERSION from ${latest.fileName}`);
+  }
+
+  await updateLaunch(latest);
+}
+
+async function updateLaunch(latest) {
+  console.log("Latest server pack:", latest);
 
   const launchPath = "launch.sh";
   const launch = fs.readFileSync(launchPath, "utf8");
 
-  // Update exactly the lines we expect in launch.sh
   const updated = [
-    [/^SERVER_VERSION=".*"$/m, `SERVER_VERSION="${latest.serverVersion}"`],
-    [/^SERVER_FILE_ID=\d+$/m, `SERVER_FILE_ID=${latest.id}`],
+    [/^SERVER_VERSION=.*$/m, `SERVER_VERSION="${latest.serverVersion}"`],
+    [/^SERVER_FILE_ID=.*$/m, `SERVER_FILE_ID=${latest.id}`],
   ].reduce((acc, [pat, rep]) => replaceOrThrow(acc, pat, rep), launch);
 
   if (updated === launch) {
