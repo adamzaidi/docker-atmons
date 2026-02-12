@@ -6,9 +6,15 @@ set -x
 # All the Mons Configuration
 # ==============================
 
+SERVER_VERSION="0.10.0-beta"
 SERVER_FILE_ID=7582447
-SERVER_FILE_NAME="ServerFiles-0.10.0-beta.zip"
-FORGE_CDN_URL="https://mediafilez.forgecdn.net/files/7582/447/${SERVER_FILE_NAME}"
+SERVER_FILE_NAME="ServerFiles-${SERVER_VERSION}.zip"
+
+# Extract prefix/suffix from file ID dynamically
+SERVER_FILE_ID_PREFIX="${SERVER_FILE_ID:0:4}"
+SERVER_FILE_ID_SUFFIX="${SERVER_FILE_ID: -3}"
+
+FORGE_CDN_URL="https://mediafilez.forgecdn.net/files/${SERVER_FILE_ID_PREFIX}/${SERVER_FILE_ID_SUFFIX}/${SERVER_FILE_NAME}"
 
 cd /data || exit 1
 
@@ -38,7 +44,7 @@ if ! [[ -f "$SERVER_FILE_NAME" ]]; then
     echo "Extracting server files..."
     unzip -u -o "$SERVER_FILE_NAME" -d /data
 
-    DIR_TEST="ServerFiles-0.10.0-beta"
+    DIR_TEST="ServerFiles-${SERVER_VERSION}"
 
     if [[ -d "$DIR_TEST" ]]; then
         cd "$DIR_TEST" || exit 1
