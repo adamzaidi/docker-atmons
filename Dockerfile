@@ -2,21 +2,33 @@
 
 FROM eclipse-temurin:21-jdk
 
-LABEL version="5.4"
+LABEL maintainer="Adam Zaidi"
+LABEL modpack="All the Mons"
+LABEL version="0.10.0-beta"
+LABEL description="Docker container for running the All the Mons Minecraft server on Unraid"
 
-
-RUN apt-get update && apt-get install -y curl unzip jq && \
+# Install required tools and clean up apt cache
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        unzip \
+        jq && \
+    rm -rf /var/lib/apt/lists/* && \
     adduser --uid 99 --gid 100 --home /data --disabled-password minecraft
 
+# Copy launch script
 COPY launch.sh /launch.sh
 RUN chmod +x /launch.sh
 
+# Switch to unraid-compatible user
 USER minecraft
 
-VOLUME /data
+# Persistent server directory
+VOLUME ["/data"]
 WORKDIR /data
- 
+
+# Minecraft default port
 EXPOSE 25565/tcp
 
+# Start the server
 CMD ["/launch.sh"]
- 

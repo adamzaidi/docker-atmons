@@ -13,9 +13,9 @@ Remeber to either set nodeports manually or go get the assigment from your servi
 apiVersion: v1
 kind: Service
 metadata:
-  name: minecraft-all-the-mods-10
+  name: minecraft-all-the-mons
   labels:
-    app: minecraft-all-the-mods-10
+    app: minecraft-all-the-mons
 spec:
   type: NodePort
   ports:
@@ -32,21 +32,21 @@ spec:
     name: "minecraft-game"
     targetPort: "minecraft-game"
   selector:
-    app: minecraft-all-the-mods-10
+    app: minecraft-all-the-mons
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: minecraft-all-the-mods-10
+  name: minecraft-all-the-mons
   namespace: default
 spec:
   selector:
     matchLabels:
-      app: minecraft-all-the-mods-10
+      app: minecraft-all-the-mons
   template:
     metadata:
       labels:
-        app: minecraft-all-the-mods-10
+        app: minecraft-all-the-mons
     spec:
       initContainers:
         - name: volume-ownership
@@ -56,7 +56,7 @@ spec:
             - name: minecraft-data
               mountPath: /data
       containers:
-        - name: minecraft-all-the-mods-10
+        - name: minecraft-all-the-mons
           image: w3lfare/allthemods10:latest  # Or specific version if needed
           env:
             - name: EULA
