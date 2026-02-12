@@ -6,7 +6,7 @@ set -x
 # All the Mons Configuration
 # ==============================
 
-SERVER_VERSION="test"
+SERVER_VERSION="0.10.0-beta"
 SERVER_FILE_ID=7582447
 SERVER_FILE_NAME="ServerFiles-${SERVER_VERSION}.zip"
 
