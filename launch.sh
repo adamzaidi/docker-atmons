@@ -6,8 +6,8 @@ set -x
 # All the Mons Configuration
 # ==============================
 
-SERVER_VERSION="0.16.0-beta"
-SERVER_FILE_ID=7877640
+SERVER_VERSION="0.17.0-beta"
+SERVER_FILE_ID=7888019
 SERVER_FILE_NAME="ServerFiles-${SERVER_VERSION}.zip"
 
 # Extract prefix/suffix from file ID dynamically
