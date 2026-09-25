@@ -10,7 +10,8 @@
   * [Accept the EULA](#accept-the-eula)
   * [Permissions of Files](#permissions-of-files)
   * [Resetting](#resetting)
-- [Source](#source-original-atm9-repo)
+  * [Upgrading](#upgrading)
+- [Credits](#credits)
 
 <!-- tocstop -->
 
@@ -18,7 +19,7 @@
 
 This container is built to run on an [Unraid](https://unraid.net) server, outside of that your mileage will vary.
 
-On first startup, this container automatically downloads the latest available ServerFiles release directly from CurseForge and installs it into /data.
+On first startup, this container downloads the ServerFiles release pinned in `launch.sh` directly from CurseForge (a daily GitHub Action bumps it to the latest) and installs it into /data.
 
 Subsequent starts will launch the installed server normally.
 
@@ -32,6 +33,7 @@ Multi-arch support (amd64 + arm64)
 * /data mounted to a persistent disk
 * Port 25565/tcp mapped
 * environment variable EULA set to "true"
+* Recommended: add `--stop-timeout=60` to **Extra Parameters** (Unraid advanced view). On stop, the container types `stop` into the server console and waits for the world to save; Docker's default 10 seconds can be too short for a big world.
 
 As the end user, you are responsible for accepting the EULA from Mojang to run their server, by default in the container it is set to false.
 
@@ -58,6 +60,9 @@ This container is designed for [Unraid](https://unraid.net) so the user in the c
 
 ### Resetting
 If the installation is incomplete for some reason.  Deleting the downloaded server file in /data will restart the install/upgrade process.
+
+### Upgrading
+When a new image version starts, it reinstalls the pack's `config`, `kubejs`, `mods` and NeoForge `libraries`. Your world, `server.properties`, whitelist and ops are kept. Back up `/data/world` before upgrading.
 
 ## Credits
 Github: https://github.com/Goobaroo/docker-allthemods9

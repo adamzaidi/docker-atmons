@@ -12,7 +12,8 @@ SERVER_FILE_NAME="ServerFiles-${SERVER_VERSION}.zip"
 
 # Extract prefix/suffix from file ID dynamically
 SERVER_FILE_ID_PREFIX="${SERVER_FILE_ID:0:4}"
-SERVER_FILE_ID_SUFFIX="${SERVER_FILE_ID: -3}"
+# ForgeCDN drops leading zeros in the suffix (e.g. 8916064 -> 8916/64)
+SERVER_FILE_ID_SUFFIX="$((10#${SERVER_FILE_ID: -3}))"
 
 FORGE_CDN_URL="https://mediafilez.forgecdn.net/files/${SERVER_FILE_ID_PREFIX}/${SERVER_FILE_ID_SUFFIX}/${SERVER_FILE_NAME}"
 
@@ -36,7 +37,7 @@ fi
 if ! [[ -f "$SERVER_FILE_NAME" ]]; then
     echo "First run detected. Installing All the Mons..."
 
-    rm -fr config defaultconfigs kubejs mods packmenu ServerFiles-* neoforge*
+    rm -fr config defaultconfigs kubejs local mods packmenu libraries ServerFiles-* neoforge*
 
     echo "Downloading from ForgeCDN..."
     curl -L -o "$SERVER_FILE_NAME" "$FORGE_CDN_URL" || exit 9
@@ -56,44 +57,57 @@ if ! [[ -f "$SERVER_FILE_NAME" ]]; then
 fi
 
 # ==============================
+# Install NeoForge (without starting the server)
+# ==============================
+
+# startserver.sh installs NeoForge and writes a default server.properties on first run.
+# Running it in install-only mode here means the settings below apply on the very first boot.
+if [[ ! -f startserver.sh ]]; then
+    echo "ERROR: startserver.sh not found."
+    ls -la
+    exit 1
+fi
+chmod +x startserver.sh
+ATM10_INSTALL_ONLY=true ./startserver.sh
+
+# ==============================
 # JVM Options (if file exists)
 # ==============================
 
 if [[ -n "$JVM_OPTS" ]] && [[ -f user_jvm_args.txt ]]; then
     sed -i '/-Xm[s,x]/d' user_jvm_args.txt
+    # The pack ships this file without a trailing newline; add one so appended flags land on their own line
+    sed -i -e '$a\' user_jvm_args.txt
     for j in ${JVM_OPTS}; do
         echo "$j" >> user_jvm_args.txt
     done
 fi
 
 # ==============================
-# Server Properties (only if file exists)
+# Server Properties
 # ==============================
 
-if [[ -f server.properties ]]; then
-
-    if [[ -n "$MOTD" ]]; then
-        sed -i "s/^motd=.*/motd=$MOTD/" server.properties
+# Set key=value, adding the key if the file doesn't have it yet
+set_prop() {
+    local key="$1" value="$2"
+    value=$(printf '%s' "$value" | sed -e 's/[\\/&]/\\&/g')
+    if grep -q "^${key}=" server.properties; then
+        sed -i "s/^${key}=.*/${key}=${value}/" server.properties
+    else
+        echo "${key}=${value}" >> server.properties
     fi
+}
 
-    if [[ -n "$ENABLE_WHITELIST" ]]; then
-        sed -i "s/white-list=.*/white-list=$ENABLE_WHITELIST/" server.properties
-    fi
+touch server.properties
+sed -i -e '$a\' server.properties
 
-    if [[ -n "$ALLOW_FLIGHT" ]]; then
-        sed -i "s/allow-flight=.*/allow-flight=$ALLOW_FLIGHT/" server.properties
-    fi
-
-    if [[ -n "$MAX_PLAYERS" ]]; then
-        sed -i "s/max-players=.*/max-players=$MAX_PLAYERS/" server.properties
-    fi
-
-    if [[ -n "$ONLINE_MODE" ]]; then
-        sed -i "s/online-mode=.*/online-mode=$ONLINE_MODE/" server.properties
-    fi
-
-    sed -i 's/server-port=.*/server-port=25565/g' server.properties
-fi
+[[ -n "$MOTD" ]] && set_prop motd "$MOTD"
+[[ -n "$ENABLE_WHITELIST" ]] && set_prop white-list "$ENABLE_WHITELIST"
+[[ -n "$ENABLE_WHITELIST" ]] && set_prop enforce-whitelist "$ENABLE_WHITELIST"
+[[ -n "$ALLOW_FLIGHT" ]] && set_prop allow-flight "$ALLOW_FLIGHT"
+[[ -n "$MAX_PLAYERS" ]] && set_prop max-players "$MAX_PLAYERS"
+[[ -n "$ONLINE_MODE" ]] && set_prop online-mode "$ONLINE_MODE"
+set_prop server-port 25565
 
 # ==============================
 # Whitelist Setup
@@ -157,12 +171,23 @@ done
 # Start Server
 # ==============================
 
-if [[ -f startserver.sh ]]; then
-    echo "Starting All the Mons server..."
-    chmod +x startserver.sh
-    exec ./startserver.sh
-else
-    echo "ERROR: startserver.sh not found."
-    ls -la
-    exit 1
-fi
+# Run Java directly instead of startserver.sh: the pack's script loops and doesn't pass signals on.
+# On `docker stop` (SIGTERM), type "stop" into the server console so the world saves before exit.
+NEOFORGE_VERSION=$(sed -n 's/^NEOFORGE_VERSION=//p' startserver.sh)
+CONSOLE=/tmp/mc-console
+rm -f "$CONSOLE"
+mkfifo "$CONSOLE"
+
+echo "Starting All the Mons server (NeoForge ${NEOFORGE_VERSION})..."
+java @user_jvm_args.txt "@libraries/net/neoforged/neoforge/${NEOFORGE_VERSION}/unix_args.txt" nogui < "$CONSOLE" &
+SERVER_PID=$!
+exec 3> "$CONSOLE"  # hold the write end open so the server never sees end-of-input
+
+trap 'echo "Stop requested, saving world..."; echo stop >&3' TERM INT
+
+set +e
+while kill -0 "$SERVER_PID" 2>/dev/null; do
+    wait "$SERVER_PID"
+    STATUS=$?
+done
+exit "$STATUS"
